@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import Countdown from 'react-countdown';
 import Lottie from 'lottie-react';
 import { HandLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
 
@@ -10,7 +11,7 @@ import { saveResultsData } from '../utils/saveToLocalStorage';
 // TODO -> If you add more functions to utils/utils.tsx, import them here
 
 // Import contexts
-import { useUser } from "../contexts/UserContext"; 
+import { useUser } from "../contexts/UserContext";
 import { useCamera } from "../contexts/CameraContext";
 
 // Import styles
@@ -18,7 +19,59 @@ import './SharedStyles.css'
 import './YourProject.css'
 import '../utils/glowEffect.css';
 import explosionAnimation from '../assets/explosion.json';
-import ImpairmentScale from "../components/ImpairmentScale"; 
+import ImpairmentScale from "../components/ImpairmentScale";
+
+
+
+// Rectangle class to manage the blocks
+class Rectangle {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  isPinched: boolean = false;
+  hasBeenPlaced: boolean = false;
+  color: string = 'red'; // Default color
+
+  constructor(x: number, y: number, w: number, h: number) {
+    this.x = x;
+    this.y = y;
+    this.w = w;
+    this.h = h;
+  }
+
+  // Method to draw the rectangle on the canvas
+  draw(ctx: CanvasRenderingContext2D) {
+    if (this.isPinched) {
+      this.color = 'lime'; // Green when pinched
+    } else if (this.hasBeenPlaced) {
+      this.color = 'blue'; // Blue when successfully placed
+    } else {
+      this.color = 'red'; // Default red
+    }
+    ctx.fillStyle = this.color;
+    ctx.fillRect(this.x, this.y, this.w, this.h);
+  }
+
+  // Method to check if a point (like the pinch center) is inside the rectangle
+  contains(point: { x: number, y: number }): boolean {
+    return (
+      point.x > this.x &&
+      point.x < this.x + this.w &&
+      point.y > this.y &&
+      point.y < this.y + this.h
+    );
+  }
+
+  // Method to move the rectangle
+  move(x: number, y: number) {
+      if (this.hasBeenPlaced) return;
+      // Center the rectangle on the new coordinates
+      this.x = x - this.w / 2;
+      this.y = y - this.h / 2;
+  }
+}
+
 
 const YourProject = () => {
   const navigate = useNavigate();
@@ -47,7 +100,7 @@ const YourProject = () => {
   // Manage end of a session
   const [showConfetti, setShowConfetti] = useState(false);
   const [showResultsBox, setshowResultsBox] = useState(false);
-  const resultsContainerRef = useRef<HTMLDivElement>(null); 
+  const resultsContainerRef = useRef<HTMLDivElement>(null);
 
   // Webcam and Canvas states
   const webcamVideoRef = useRef<HTMLVideoElement>(null);
@@ -59,28 +112,78 @@ const YourProject = () => {
   // Hand-related states (models, landmarks, type of hand, etc)
   const handLandmarker = useRef<HandLandmarker | null>(null); // Ref to manage the hand landmarker model
   const handSizeCMRef = useRef<number|null>(null);  // Ref to manage hand size in centimeters
-  const handSizePXRef = useRef<number>(0);          // Ref to manage hand size in pixels
   const [selectedHand, setSelectedHand] = useState<string>('Left'); // Ref to manage selected hand
   const selectedHandRef = useRef(selectedHand); // Ref to manage selected hand
   useEffect(() => {selectedHandRef.current = selectedHand;}, [selectedHand]); // Keep track of selectedHand changes
   const [selectedFingertips, setSelectedFingertips] = useState<string>('fingertips'); // State to manage selected fingertips
   const selectedFingertipsRef = useRef(selectedFingertips);
   useEffect(() => {selectedFingertipsRef.current = selectedFingertips;}, [selectedFingertips]);
- 
+
   // UI-related states
-  const [showIntroPopup, setShowIntroPopup] = useState(true); 
+  const [showIntroPopup, setShowIntroPopup] = useState(true);
   const [isWebGLAvailable, setWebGLAvailable] = useState<boolean>(true);
+  
+
+  // Assessment Game States
+  const [gameStarted, setGameStarted] = useState(false);
+  const [rectangles, setRectangles] = useState<Rectangle[]>([]);
+  const [wins, setWins] = useState(0);
+  const [misses, setMisses] = useState(0);
+  const [shouldMoveRect, setShouldMoveRect] = useState(false);
+  const shouldMoveRectRef = useRef(shouldMoveRect);
+  useEffect(() => {
+    shouldMoveRectRef.current = shouldMoveRect;
+  }, [shouldMoveRect]);
+  const [isPinched, setIsPinched] = useState(false);
+  const isPinchedRef = useRef(isPinched);
+  const [handId, setHandId] = useState(0);
+  useEffect(() => {
+    isPinchedRef.current = isPinched;
+  }, [isPinched]);
+
+  const [pinchedRectIndex, setPinchedRectIndex] = useState(-1);
+  const pinchedRectIndexRef = useRef(pinchedRectIndex);
+  useEffect(() => {
+    pinchedRectIndexRef.current = pinchedRectIndex;
+  }, [pinchedRectIndex]);
+  const [distance, setDistance] = useState(0);
+  const distanceRef = useRef(distance);
+  useEffect(() => {
+    distanceRef.current = distance;
+  }, [distance]);
+  
+  const handVisibleRef = useRef(false);
+  const [gameTimeUp, setGameTimeUp] = useState(false);
+  const [gameWon, setGameWon] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(60); // 60 seconds
+  
+  useEffect(() => {
+    if (gameStarted && timeLeft > 0 && handVisibleRef.current) {
+      const interval = setInterval(() => {
+        setTimeLeft(prev => {
+          if (prev <= 1) {
+            console.log("Countdown reached zero!");
+            setGameTimeUp(true);
+            setGameStarted(false);
+            clearInterval(interval);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+
+      return () => clearInterval(interval);
+    }
+  }, [gameStarted, timeLeft, handVisibleRef.current]);
 
   // tutorial/instructions related states
-  const [instructionsText, setInstructionsText] = useState('Example: Touch both index fingertips together');
-  const [instructionsBigText, setInstructionsBigText] = useState<string>('Touch index fingertips'); // State to manage the label text
+  const [instructionsText] = useState('Example: Touch both index fingertips together');
+  const [instructionsBigText] = useState<string>('Touch index fingertips'); // State to manage the label text
 
   // Detect the navigator agent
   const { isMac, isWindows, isAndroid, isiOS, isSafari, isChrome, isEdge } = checkNavigatorAgent(); // Check the user agent to determine the OS and browser
 
-  // TODO -> YourProject-specific states (proprioceptive metric, distance, speed, etc [fill with your own metrics])
-  const resultsRef = useRef<number[]>([]); // This is an example on how to set a variable for storing results
-
+  
   // The camera settings have been loaded
   useEffect(() => {
     if (!cameraSettingsLoading && cameraSettings) {
@@ -88,7 +191,7 @@ const YourProject = () => {
       console.log('✅️📷 Camera settings loaded: ', cameraSettings);
     }
   }, [cameraSettingsLoading, cameraSettings]);
- 
+
   // Check if camera settings are loaded and cameraId is available, then initialize webcam
   useEffect(() => {
     let cleanupListener: (() => void) | undefined;
@@ -143,9 +246,9 @@ const YourProject = () => {
     }
     if (userSettingsLoaded) {
       checkHandSizeIsSaved();
-    }  
-  }, [userSettingsLoaded]); 
-  
+    }
+  }, [userSettingsLoaded]);
+
   // Detect OS and browser
   useEffect(() => {
     console.log('💻 isMac: ', isMac);
@@ -155,7 +258,7 @@ const YourProject = () => {
     console.log("👨🏼‍💻 Safari:", isSafari);
     console.log("👨🏼‍💻 Chrome:", isChrome);
     console.log("👨🏼‍💻 Edge:", isEdge);
-  }, []); 
+  }, []);
 
   // Initialization
   useEffect(() => {
@@ -169,17 +272,17 @@ const YourProject = () => {
         setCanvasRunning(false);
       }
     };
-   
+
     // Check for WebGL availability, and it not available show a popup
-    setWebGLAvailable(checkWebGLAvailability(document.createElement("canvas")));   
+    setWebGLAvailable(checkWebGLAvailability(document.createElement("canvas")));
     // Create the hand landmarker
-    createHandLandmarker(); 
+    createHandLandmarker();
 
     // Add event listener to resize the canvas on window resize
     window.addEventListener('resize', resizeCanvas);
     // Initialize the canvasCtx if canvasRef exists
     initializeCanvas();
-    
+
     return () => {
       window.removeEventListener('resize', resizeCanvas ); // Clean up the event listener when the component unmounts
       console.log('📜 Removed canvas event listener')
@@ -191,18 +294,18 @@ const YourProject = () => {
         webcamVideoRef.current.srcObject = null;
       }
     };
-  }, []); 
+  }, []);
 
   // Checks before starting the hand predictions
   useEffect(() => {
     if (!webcamRunning) {return}
-    
+
     console.log("✅📝 webcamRunning is true");
-  
+
     const video = webcamVideoRef.current;
     const ctx = canvasCtx.current;
     const canvas = canvasRef.current;
-  
+
     // Check if required video elements exist
     if (!video) {console.error("❌ - webcamVideoRef is null or undefined");return;}
     if (!video.srcObject) {console.error("❌ No video stream attached to video element.");return;}
@@ -224,21 +327,21 @@ const YourProject = () => {
     if (userSettingsLoaded && !showIntroPopup){
       console.log("🚀🖐🏻 Starting hand prediction with predictWebcam()");
       predictWebcam();
-    } 
+    }
   }, [webcamRunning, handLandmarker, showIntroPopup]);
-  
+
   // Start prediction of hand landmarks  when session is finished
-  useEffect(() => { 
+  useEffect(() => {
     console.log('🏁 Finished the session', sessionFinished);
     sessionFinishedRef.current = sessionFinished;
     if (sessionFinishedRef.current && canvasCtx.current){
       canvasCtx.current.clearRect(0, 0, canvasCtx.current.canvas.width, canvasCtx.current.canvas.height);
     }
     predictWebcam(); // Restart the prediction loop
-  }, [sessionFinished]); 
- 
+  }, [sessionFinished]);
+
   // Reset session results when starting a new session
-  useEffect(() => { 
+  useEffect(() => {
     if (startNewSession === true){
       console.log('🪜 Starting new session');
       sessionIdRef.current = generateSessionId(); // create new session ID
@@ -248,8 +351,9 @@ const YourProject = () => {
 
       setSessionFinished(false);                  // Reset session finished state
       setStartNewSession(false);                  // Reset start new session state
+      startGame(selectedHand as 'Left' | 'Right');                    // Start the game with the selected hand
     }
-  }, [startNewSession]); 
+  }, [startNewSession]);
 
   // Show results box when session is finished with certain colors depending on the task result
   useEffect(() => {
@@ -259,6 +363,75 @@ const YourProject = () => {
     }
   }, [showResultsBox]);
 
+  // Function to start the game with the selected hand
+  const startGame = (hand: 'Left' | 'Right') => {
+    const handStr = hand as string;
+    setSelectedHand(handStr);
+
+    // Reset rectangles
+    generateRectangles(hand);
+
+    // Reset game states
+    setShowIntroPopup(false);
+    setGameStarted(true);
+    setGameTimeUp(false);
+    setGameWon(false);
+    setTimeLeft(60); // Reset timer
+    setWins(0);
+    setMisses(0);
+
+    // Reset pinching-related states and refs
+    setIsPinched(false);
+    setShouldMoveRect(false);
+    setPinchedRectIndex(-1);
+    isPinchedRef.current = false;
+    shouldMoveRectRef.current = false;
+    pinchedRectIndexRef.current = -1;
+  };
+  
+  // Function to generate rectangles for the game
+  const generateRectangles = (hand: 'Left' | 'Right') => {
+    const newRects: Rectangle[] = [];
+    const numBlocks = 5;
+    const blockWidth = 50;
+    const blockHeight = 50;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    // Define the area where blocks can spawn based on the selected hand
+    const dropZoneLine = canvas.width / 2;
+    const minX = hand === 'Left' ? dropZoneLine : 0;
+    const maxX = hand === 'Left' ? canvas.width - blockWidth : dropZoneLine - blockWidth;
+
+    for (let i = 0; i < numBlocks; i++) {
+      let placed = false;
+      while (!placed) {
+        const posX = Math.random() * (maxX - minX) + minX;
+        const posY = Math.random() * (canvas.height - blockHeight);
+        const newRect = new Rectangle(posX, posY, blockWidth, blockHeight);
+
+        // Check for overlap with already placed rectangles
+        const overlapping = newRects.some(rect =>
+          Math.abs(newRect.x - rect.x) < blockWidth && Math.abs(newRect.y - rect.y) < blockHeight
+        );
+
+        if (!overlapping) {
+          newRects.push(newRect);
+          placed = true;
+        }
+      }
+    }
+    setRectangles(newRects);
+  };
+  useEffect(() => {
+    if (gameStarted && rectangles.length > 0) {
+      const placedBlocks = rectangles.filter(rect => rect.hasBeenPlaced).length;
+      if (placedBlocks === rectangles.length) {
+        setGameWon(true);
+        setGameStarted(false);
+      }
+    }
+  }, [rectangles, gameStarted]);
   // Start webcam with the selected camera
   const startWebcam = async (cameraId: string): Promise<(() => void) | undefined> => {
     try {
@@ -306,7 +479,7 @@ const YourProject = () => {
     }
   };
 
-  // Create the Hand Landmarker 
+  // Create the Hand Landmarker
   const createHandLandmarker = async () => {
     if (handLandmarker.current) return; // Prevent re-creating if already exists
     // Load and prepare the WebAssembly (WASM) runtime from the given CDN to run MediaPipe Vision tasks (like hand tracking) in the browser.
@@ -346,148 +519,190 @@ const YourProject = () => {
     }
   };
 
-  // For every frame, run the hand tracking model
-  // TODO -> Implement your changes mostly inside this function
-  const predictWebcam = async () => {
-    // Check if the video element, handLandmarker, canvas context, and canvas context are defined
-    const ctx = canvasCtx.current;
-    if (!webcamVideoRef.current || !handLandmarker.current || !ctx) return;
-    if (sessionFinishedRef.current) return;
+  const moveRectangle = (index: number, x: number, y: number) => {
+    const rect = rectangles[index];
+    rect.x = x - rect.w / 2; // Center the rectangle on the new coordinates
+    rect.y = y - rect.h / 2;
 
-    // Clear the entire canvas
-    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-   
-    // Run the hand landmark model for this frame
-    const results = await handLandmarker.current.detectForVideo(webcamVideoRef.current, performance.now());
-
-    // No hands detected
-    if (results.handedness.length==0){
-      // Add a warning to let the user know he has to show both hands
-    } 
-    // Just one hand detected
-    else if (results.handedness.length==1){
-      // console.log('🖐🏻 One hand detected, and its handedness is: ', results.handedness[0][0].categoryName==='Right' ? 'Left': 'Right');
-    }else if(results.handedness.length==2){
-
-      // At startup, check if the user's hand size was saved in their DB
-      if (handSizeCMRef.current === null) {
-        console.warn('User does not have hand size saved in Local Storage')
-        navigate('/recordhandsize'); // Redirect to hand size calibration page
-      }
-
-      // Check if two hands are detected and if they are different hands
-      if (results.handedness[0][0].categoryName !== results.handedness[1][0].categoryName){
-        // console.log('🖐🏻🖐🏻 Two different hands detected');
-        try {
-          let fillColor = ''
-          let targetHand: typeof results.landmarks[0] = results.landmarks[0];
-          let pointingHand: typeof results.landmarks[0] = results.landmarks[0];
-
-          ctx.save(); // Save the current state of the canvas (e.g., transformations like scale and translate)
-          ctx.scale(-1, 1); // Flip the canvas horizontally
-          ctx.translate(-ctx.canvas.width, 0); // Translate the canvas to adjust for the horizontal flip
-          
-          for (let i = 0; i < results.landmarks.length; i++) { // iterate for every hand
-            // Access landmarks for the current hand
-            const handLandmarks = results.landmarks[i];
-           
-            // Set the color based on handedness (Left or Right)
-            if (results.handedness[i][0].categoryName === 'Right') {  // should be left but video is mirrored
-              if (selectedHandRef.current === 'Left') {
-                fillColor = 'rgb(64, 224, 208)';
-                targetHand = handLandmarks; // Store the left hand landmarks as targetHand
-              } else {
-                fillColor = 'rgb(95, 224, 90)';
-                pointingHand = handLandmarks; // Store the left hand landmarks as pointingHand
-              }
-            } else {
-              if (selectedHandRef.current === 'Right') { 
-                fillColor = 'rgb(64, 224, 208)';
-                targetHand = handLandmarks; // Store the right hand landmarks as targetHand
-              } else {
-                fillColor = 'rgb(95, 224, 90)';
-                pointingHand = handLandmarks; // Store the right hand landmarks as pointingHand
-              }
-            }
-            // Pass the color and landmarks to drawLandmarks
-            drawLandmarks_simple(ctx, handLandmarks, fillColor)
-
-            // TODO -> Add more drawings on the canvas, like lines between fingertips, etc.
-          }
-
-          // Example of how to get the coordinates of the pointing hand's index finger tip in x and y
-          const pointingHandX = webcamVideoRef.current.videoWidth * (1 - pointingHand[8].x);
-          const pointingHandY = webcamVideoRef.current.videoHeight * pointingHand[8].y;
-          
-          // Get both fingertips coordinates
-          let idx1 = [webcamVideoRef.current.videoWidth*(1-pointingHand[8].x), webcamVideoRef.current.videoHeight*pointingHand[8].y];
-          let idx2 = [webcamVideoRef.current.videoWidth*(1-targetHand[8].x), webcamVideoRef.current.videoHeight*targetHand[8].y];
-
-          // TODO -> Choose which landmarks to use for your proprioceptive metric
-          
-          // IMPLEMENT YOUR CODE HERE
-          // TODO -> Implement your proprioceptive metric here
-          /// **** Start example  **** ///
-
-          // The following code is just an example of how to calculate a proprioceptive metric
-          // For instance, calculate the distance between the two fingertips, and stop when <100 pixels
-          // use calculateHandSizeCM to get the hand size in centimeters instead of pixels
-          const score = calculateDistance(idx1, idx2);
-
-          // Manage the end of the task based on a threshold or your own conditions
-          if (score < 100 && taskFinishedRef.current === false) { // If the distance is less than 100 pixels and the task is not finished
-            setTaskResult(score); 
-            console.log('🏁🖐🏻 Task finished');
-            taskFinishedRef.current = true;
-            
-            setshowResultsBox(true);
-            if (taskRepsRef.current < totalNumberOfTasks) {
-              setTimeout(() => {
-                setshowResultsBox(false);
-                taskFinishedRef.current = false;
-              }, 3000); // Hide box after 3 seconds
-            }
-            taskRepsRef.current += 1;
-            
-            // Manage screen feedback if score is good
-            if (score < 8) {
-              setShowConfetti(true);
-              setTimeout(() => setShowConfetti(false), 1000);
-            }
-
-            // Save results
-            sessionResultsRef.current.push(score);
-            saveResultsData("YourProject", sessionIdRef.current, sessionResultsRef.current);
-          }
-          /// **** End example **** ///
- 
-        } catch (error) {
-          console.error('Error during hand landmark detection:', error);
-        }
-      }else{
-        console.log('🖐🏻=🖐🏻 Both hands are the same, skipping frame');
-      }
-    } else {
-      console.log('🖐🏻🖐🏻🖐🏻+ More than 2 hands detected, skipping frame');
-    }
-
-    ctx.restore(); // Restore the canvas state
-    requestAnimationFrame(predictWebcam);
-      
+    // Update only the affected rectangle
+    const updatedRectangles = [...rectangles];
+    updatedRectangles[index] = rect;
+    setRectangles(updatedRectangles);
   };
 
+  const repositionRectangle = (index: number, expectedHand: string) => {
+    const rect = rectangles[index];
+    const dropZoneLine = canvasCtx.current!.canvas.width / 2;
+    const isLeftHand = expectedHand === 'Left';
+    const minX = isLeftHand ? 0 : dropZoneLine;
+    const maxX = isLeftHand ? dropZoneLine - rect.w : canvasCtx.current!.canvas.width - rect.w;
 
+    let tries = 0;
+    let newX = 0, newY = 0;
+    let overlapping;
+
+    do {
+      newX = Math.random() * (maxX - minX) + minX;
+      newY = Math.random() * (canvasCtx.current!.canvas.height - rect.h);
+      overlapping = rectangles.some(
+        (other, idx) =>
+          idx !== index &&
+          !other.hasBeenPlaced &&
+          Math.abs(newX - other.x) < rect.w &&
+          Math.abs(newY - other.y) < rect.h
+      );
+      tries++;
+    } while (overlapping && tries < 50);
+
+    rect.x = newX;
+    rect.y = newY;
+
+    const updatedRectangles = [...rectangles];
+    updatedRectangles[index] = rect;
+    setRectangles(updatedRectangles);
+  };
   
+  const setupCanvas = (ctx: CanvasRenderingContext2D) => {
+    ctx.save();
+    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    ctx.scale(-1, 1);
+    ctx.translate(-ctx.canvas.width, 0);
+  };
+
+  const drawDropZoneLine = (ctx: CanvasRenderingContext2D) => {
+    const dropZoneLine = ctx.canvas.width / 2;
+    ctx.strokeStyle = "black";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(dropZoneLine, 0);
+    ctx.lineTo(dropZoneLine, ctx.canvas.height);
+    ctx.stroke();
+  };
+
+  interface HandDetectionResults {
+    handedness: Array<Array<{ categoryName: string; score: number }>>;
+    landmarks: Array<Array<{ x: number; y: number; z: number }>>;
+  }
+
+  const detectHand = (results: HandDetectionResults, expectedHand: string) => {
+    return results.handedness.findIndex(
+      hand => hand[0].categoryName === expectedHand && hand[0].score > 0.5
+    );
+  };
+
+  const calculatePinchDistance = (thumbTip: any, indexTip: any) => {
+    return Math.hypot(indexTip.x - thumbTip.x, indexTip.y - thumbTip.y);
+  };
+  const handlePinchDetection = (thumbTip: any, indexTip: any, ctx: CanvasRenderingContext2D, expectedHand: string) => {
+    const pinchThreshold = 0.05;
+
+    const pinchCenterX = (thumbTip.x + indexTip.x) / 2 * ctx.canvas.width;
+    const pinchCenterY = (thumbTip.y + indexTip.y) / 2 * ctx.canvas.height;
+
+    const distance = calculatePinchDistance(thumbTip, indexTip);
+    setDistance(distance);
+
+    if (distance < pinchThreshold && !isPinchedRef.current) {
+      handlePinchStart(pinchCenterX, pinchCenterY);
+    } else if (distance > pinchThreshold && isPinchedRef.current) {
+      handlePinchRelease(expectedHand);
+    }
+
+    if (shouldMoveRectRef.current && isPinchedRef.current && pinchedRectIndexRef.current !== -1) {
+      moveRectangle(pinchedRectIndexRef.current, pinchCenterX, pinchCenterY);
+    }
+  };
+
+  const handlePinchStart = (pinchCenterX: number, pinchCenterY: number) => {
+    // Prevent pinch logic if the game is already won
+    if (gameWon) return;
+
+    setIsPinched(true);
+    isPinchedRef.current = true;
+
+    const rectsCopy = [...rectangles];
+    let rectFound = false;
+
+    for (let i = 0; i < rectsCopy.length; i++) {
+      if (!rectsCopy[i].hasBeenPlaced && rectsCopy[i].contains({ x: pinchCenterX, y: pinchCenterY })) {
+        setPinchedRectIndex(i);
+        rectsCopy[i].isPinched = true;
+        rectFound = true;
+        setRectangles(rectsCopy);
+        setShouldMoveRect(true);
+        break;
+      }
+    }
+
+    if (!rectFound) {
+      setMisses(prev => prev + 1);
+      setPinchedRectIndex(-1);
+    }
+  };
+
+  const handlePinchRelease = (expectedHand: string) => {
+    setIsPinched(false);
+    setShouldMoveRect(false);
+    isPinchedRef.current = false;
+
+    if (pinchedRectIndexRef.current !== -1) {
+      const rect = rectangles[pinchedRectIndexRef.current];
+      const dropZoneLine = canvasCtx.current!.canvas.width / 2;
+      const isLeftHand = expectedHand === "Left";
+      const success = (isLeftHand && rect.x > dropZoneLine) || (!isLeftHand && rect.x < dropZoneLine);
+
+      if (success) {
+        setWins(prev => prev + 1);
+        rect.hasBeenPlaced = true;
+      } else {
+        repositionRectangle(pinchedRectIndexRef.current, expectedHand);
+      }
+
+      rect.isPinched = false;
+      const updatedRectangles = [...rectangles];
+      updatedRectangles[pinchedRectIndexRef.current] = rect;
+      setRectangles(updatedRectangles);
+      setPinchedRectIndex(-1);
+    }
+  };
+  
+  //Main function that loops during gameplay
+  const predictWebcam = async () => {
+    const ctx = canvasCtx.current;
+    if (!webcamVideoRef.current || !handLandmarker.current || !ctx || sessionFinishedRef.current) return;
+
+    setupCanvas(ctx);
+
+    const results = await handLandmarker.current.detectForVideo(webcamVideoRef.current, performance.now());
+    const expectedHand = selectedHand === "Left" ? "Right" : "Left";
+    const handIndex = detectHand(results, expectedHand);
+
+    setHandId(handIndex);
+    handVisibleRef.current = results.handedness.length > 0 && handIndex !== -1 && gameStarted;
+
+    drawDropZoneLine(ctx);
+    rectangles.forEach(rect => rect.draw(ctx));
+
+    if (results.handedness.length > 0 && gameStarted && handIndex !== -1) {
+      const landmarks = results.landmarks[handIndex];
+      drawLandmarks_simple(ctx, landmarks, 'rgb(64, 224, 208)');
+      handlePinchDetection(landmarks[4], landmarks[8], ctx, expectedHand);
+    }
+
+    ctx.restore();
+    requestAnimationFrame(predictWebcam);
+  };
+
   return (
-    
-    <div className="yourproject-container" style={isiOS ? { background: "black" } : {}}> 
-    
+
+    <div className="yourproject-container" style={isiOS ? { background: "black" } : {}}>
+
       {!isWebGLAvailable ? (
         <div className="popupDebugContainer" >
         <div className="bg-red-500 text-white p-2 rounded">
-          ⚠️ WebGL is disabled!  
+          ⚠️ WebGL is disabled!
           <br />
-          ➡️ Enable it in your browser to use the hand tracking model:  
+          ➡️ Enable it in your browser to use the hand tracking model:
           <a
             href="https://help.constructiononline.com/en/scheduling-webgl-and-hardware-acceleration"
             target="_blank"
@@ -496,7 +711,7 @@ const YourProject = () => {
           >
              WebGL & Hardware Acceleration Guide
           </a>
-          
+
         </div>
          </div>
       ) : null}
@@ -549,11 +764,9 @@ const YourProject = () => {
 
               <button
                 onClick={() => {
-                  setStartNewSession(true); 
+                  setStartNewSession(true);
                   setshowResultsBox(false);
                   taskFinishedRef.current = false;
-                 
-                  
                 }}
                 className="popup-button"
               >
@@ -561,54 +774,114 @@ const YourProject = () => {
               </button>
             </div>
           )}
-
-
-
         </div>
       )}
-  
+
+      {/* Game End Results */}
+      {(gameTimeUp || gameWon) && (
+        <div className="popup-overlay">
+          <div className="popup-container">
+            <h2 className="popup-title-text">
+                {gameWon ? "🎉 You Won!" : "⏰ Time's Up!"}
+                
+                
+            </h2>
+            <div style={{ textAlign: 'center', margin: '20px 0', color: 'black' }}>
+              <p style={{ fontSize: '18px', margin: '10px 0' }}>
+              Blocks Moved: {rectangles.filter(rect => rect.hasBeenPlaced).length} / {rectangles.length}
+              </p>
+              <p style={{ fontSize: '18px', margin: '10px 0' }}>
+              Score - Wins: {wins} | Misses: {misses}
+              </p>
+            </div>
+            
+            <button
+              className="popup-button"
+              onClick={() => {
+                // Reset game states
+                setGameTimeUp(false);
+                setGameWon(false);
+                setShowIntroPopup(true);
+
+                // Reset pinching-related states and refs
+                setIsPinched(false);
+                setShouldMoveRect(false);
+                setPinchedRectIndex(-1);
+                isPinchedRef.current = false;
+                shouldMoveRectRef.current = false;
+                pinchedRectIndexRef.current = -1;
+
+                // Reset rectangles
+                setRectangles([]);
+              }}
+            >
+              Play Again
+            </button>
+          </div>
+        </div>
+      )}
       {/* Choose between Assessment or Game mode */}
       {showIntroPopup && (
         <div className="popup-overlay" >
           <div className="popup-container">
-            <div>
-              <button
-                onClick={() => navigate('/')}
-                aria-label="Close and go to home"
-                className='closeIntroPopup-button'
-              >
-                &#10006;
-              </button>
-              <h2 className="popup-title-text">Are you ready?</h2>
-              
-              <button 
-                className={`introPopup-button`} 
-                onClick={() => setShowIntroPopup(false)}
-                disabled={!(webcamRunning && canvasRunning)}
-                style={{ 
-                  opacity: (webcamRunning && canvasRunning) ? 1 : 0.3,
-                  cursor: (webcamRunning && canvasRunning) ? 'pointer' : 'not-allowed',
-                  fontSize: '2rem'
-                }}
-              >
-              Start
-              </button>
+            <h2 className="popup-title-text">Choose Your Hand</h2>
+              <div style={{ display: 'flex', gap: '20px' }}>
+                <button
+                  className="introPopup-button"
+                  onClick={() => startGame('Left')}
+                  disabled={!webcamRunning || !canvasRunning}
+                  style={{ opacity: (webcamRunning && canvasRunning) ? 1 : 0.3 }}
+                >
+                  Left
+                </button>
+                <button
+                  className="introPopup-button"
+                  onClick={() => startGame('Right')}
+                  disabled={!webcamRunning || !canvasRunning}
+                  style={{ opacity: (webcamRunning && canvasRunning) ? 1 : 0.3 }}
+                >
+                  Right
+                </button>
             </div>
           </div>
         </div>
       )}
 
+      {/* Full-screen overlay */}
+      <div className="screen-cover"></div>
+
       {/* The webcam video and canvas */}
-      <div className="video-canvas-overlay">
-        <video 
-          ref={webcamVideoRef}    
-          playsInline
-          muted 
-          className="video show" 
-          style={{ filter: 'grayscale(100%)', transform: 'scaleX(-1)' }} //
-        />
-        <canvas ref={canvasRef} className="canvas show" />      
-      </div>
+        <div className="video-canvas-overlay">
+          <video
+            ref={webcamVideoRef}
+            playsInline
+            muted
+            className="video show"
+            style={{ transform: 'scaleX(-1)' }}
+          />
+          <canvas ref={canvasRef} className="canvas show" />
+          
+          {/* Game Stats Display */}
+          <div style={{ position: 'absolute', top: 10, left: 10, color: 'white', backgroundColor: 'rgba(0,0,0,0.5)', padding: '5px 10px', borderRadius: '5px', fontSize: '20px', zIndex: 20 }}>
+            Wins: {wins} | Misses: {misses}
+          </div>
+
+          {/* Timer Display - Top Right */}
+          {gameStarted && (
+            <div style={{ position: 'absolute', top: 20, right: 10, zIndex: 20 }}>
+              <span style={{ 
+                fontSize: '1.5rem', 
+                color: 'white', 
+                background: 'rgba(0,0,0,0.7)', 
+                padding: '0.5em 1em', 
+                borderRadius: '8px',
+                border: handVisibleRef.current ? '2px solid green' : '2px solid red'
+              }}>
+                ⏱️ {timeLeft}s
+              </span>
+            </div>
+          )}
+  </div>
 
       {/* Tutorial video and instructions */}
         <div className='tutorialContainer'>
@@ -619,7 +892,7 @@ const YourProject = () => {
 
           {/* Instructions or Blender File */}
           <div className="instructionsContainer">
-              <p className="instructions_text">{instructionsText}</p>  
+              <p className="instructions_text">{instructionsText}</p>
           </div>
 
           {/* TODO -> Change the thresholds for your impairment scale to provide feedback on the proprioceptive accuracy */}
@@ -627,17 +900,16 @@ const YourProject = () => {
 
 
           {!isiOS && (
-            <div> 
+            <div>
               <label className="fingerLabelBig_text">
                 {instructionsBigText}
-              </label>  
+              </label>
             </div>
           )}
-        </div>   
+        </div>
     </div>
   );
 
 };
 
 export default YourProject;
-

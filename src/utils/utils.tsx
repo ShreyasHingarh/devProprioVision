@@ -597,7 +597,7 @@ export function SymmetryDrawTargetLine(ctx: CanvasRenderingContext2D, selectedTa
 
 
 
-// Format time to 00min:00s formart
+// Format time to 00min:00s format
 export const formatTime = (seconds: number) => {
   const mins = Math.floor(seconds / 60).toString().padStart(2, '0');
   const secs = (seconds % 60).toString().padStart(2, '0');
