@@ -1,11 +1,10 @@
-import { useRef, useState, useEffect, use } from 'react';
+import { useRef, useState, useEffect,  } from 'react';
 import { useNavigate } from 'react-router-dom';
-import Countdown from 'react-countdown';
 import Lottie from 'lottie-react';
 import { HandLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
 
 // Import external functions
-import { drawLandmarks_simple, calculateDistance, calculateHandSizePX, applyGlowEffect, getGlowColor, calculateMean, generateSessionId, drawLandmarks_mirror} from '../utils/utils';
+import { applyGlowEffect, getGlowColor, calculateMean, generateSessionId, drawLandmarks_mirror} from '../utils/utils';
 import { checkNavigatorAgent, checkWebGLAvailability} from '../utils/checks';
 import { saveResultsData } from '../utils/saveToLocalStorage';
 // TODO -> If you add more functions to utils/utils.tsx, import them here
@@ -16,7 +15,7 @@ import { useCamera } from "../contexts/CameraContext";
 
 // Import styles
 import './SharedStyles.css'
-import './YourProject.css'
+import './BlockPlacementTest.css'
 import '../utils/glowEffect.css';
 import explosionAnimation from '../assets/explosion.json';
 import ImpairmentScale from "../components/ImpairmentScale";
@@ -927,7 +926,14 @@ const YourProject = () => {
                 >
                   Right
                 </button>
-            </div>
+              </div>
+             <button
+               className="introPopup-button"
+               onClick={() => navigate('/')}
+               style={{ marginTop: '20px' }}
+             >
+               Home
+             </button>
           </div>
         </div>
       )}

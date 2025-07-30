@@ -12,7 +12,7 @@ const OpenSourceLogo = "/assets/opensource-icon.png";
 const CommunityLogo = "/assets/community-icon.png";
 
 // Image imports
-const YourProjectLogo = "/assets/yourproject-logo.jpg";
+const YourProjectLogo = "/assets/square.jpg";
 
 // Component imports
 import Footer from "../components/Footer";
@@ -84,9 +84,9 @@ const Home = () => {
 
   const assessments: AssessmentCardProps[] = [
     {
-      title: "Your Project",
-      subtitle: "Describe your project and how it uses Proprio Vision.",
-      to: "/yourproject",
+      title: "Block Placement Test",
+      subtitle: "Test how many blocks you can place in a target area with your hand.",
+      to: "/BlockPlacementTest",
       image: YourProjectLogo,
       buttonText: "Try it"
     },
