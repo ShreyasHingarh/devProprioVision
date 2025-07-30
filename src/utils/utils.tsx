@@ -330,6 +330,20 @@ export const drawLandmarks_simple = (ctx: CanvasRenderingContext2D, landmarksArr
   });
 };
 
+export const drawLandmarks_mirror = (ctx: CanvasRenderingContext2D, landmarksArray: any[], fillStyle: string) => {
+  landmarksArray.forEach((landmark) => {
+    // Mirror horizontally: flip x coordinate
+    const x = ctx.canvas.width - (landmark.x * ctx.canvas.width);
+    const y = landmark.y * ctx.canvas.height;
+
+    ctx.fillStyle = fillStyle;
+    ctx.beginPath();
+    const circleplotsize = window.innerWidth < 1024 ? 4 : 6;
+    ctx.arc(x, y, circleplotsize, 0, 2 * Math.PI);
+    ctx.fill();
+  });
+};
+
  // Calculate the Euclidean distance in the xy plane between the index pointer fingertip (landmark 8) and the randomly chosen finger landmark (landmark rand?)
 export const calculateDistance = (target: any, pointer: any) => {
     const dx = target[0] - pointer[0];

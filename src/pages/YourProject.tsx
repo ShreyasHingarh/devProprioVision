@@ -1,11 +1,11 @@
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, use } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Countdown from 'react-countdown';
 import Lottie from 'lottie-react';
 import { HandLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
 
 // Import external functions
-import { drawLandmarks_simple, calculateDistance, calculateHandSizePX, applyGlowEffect, getGlowColor, calculateMean, generateSessionId} from '../utils/utils';
+import { drawLandmarks_simple, calculateDistance, calculateHandSizePX, applyGlowEffect, getGlowColor, calculateMean, generateSessionId, drawLandmarks_mirror} from '../utils/utils';
 import { checkNavigatorAgent, checkWebGLAvailability} from '../utils/checks';
 import { saveResultsData } from '../utils/saveToLocalStorage';
 // TODO -> If you add more functions to utils/utils.tsx, import them here
@@ -129,14 +129,15 @@ const YourProject = () => {
   const [rectangles, setRectangles] = useState<Rectangle[]>([]);
   const [wins, setWins] = useState(0);
   const [misses, setMisses] = useState(0);
+  
   const [shouldMoveRect, setShouldMoveRect] = useState(false);
   const shouldMoveRectRef = useRef(shouldMoveRect);
   useEffect(() => {
     shouldMoveRectRef.current = shouldMoveRect;
   }, [shouldMoveRect]);
+  
   const [isPinched, setIsPinched] = useState(false);
   const isPinchedRef = useRef(isPinched);
-  const [handId, setHandId] = useState(0);
   useEffect(() => {
     isPinchedRef.current = isPinched;
   }, [isPinched]);
@@ -146,35 +147,54 @@ const YourProject = () => {
   useEffect(() => {
     pinchedRectIndexRef.current = pinchedRectIndex;
   }, [pinchedRectIndex]);
+  
   const [distance, setDistance] = useState(0);
   const distanceRef = useRef(distance);
   useEffect(() => {
     distanceRef.current = distance;
   }, [distance]);
   
-  const handVisibleRef = useRef(false);
-  const [gameTimeUp, setGameTimeUp] = useState(false);
-  const [gameWon, setGameWon] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(60); // 60 seconds
-  
+  const [handVisible, setHandVisible] = useState(false);
+  const handVisibleRef = useRef(handVisible)
   useEffect(() => {
-    if (gameStarted && timeLeft > 0 && handVisibleRef.current) {
-      const interval = setInterval(() => {
+    handVisibleRef.current = handVisible;
+  }, [handVisible]);
+  
+  const [gameTimeUp, setGameTimeUp] = useState(false);
+  const gameTimeUpRef = useRef(gameTimeUp);
+  useEffect(() => {
+    gameTimeUpRef.current = gameTimeUp;
+  }, [gameTimeUp]);
+  
+  const [gameWon, setGameWon] = useState(false);
+  const gameWonRef = useRef(gameWon);
+  useEffect(() => {
+    gameWonRef.current = gameWon;
+  }, [gameWon]);
+  
+  const [timeLeft, setTimeLeft] = useState(60); // 60 seconds
+  const lastLandmarksRef = useRef<Array<{ x: number; y: number; z: number }>>([]);
+  const lastVisibleRef   = useRef<boolean>(false);
+
+  // Countdown timer for the game, handles game end
+  useEffect(() => {
+    let timerId: ReturnType<typeof setInterval>;
+    if (gameStarted && handVisibleRef.current && timeLeft > 0) {
+      timerId = setInterval(() => {
         setTimeLeft(prev => {
           if (prev <= 1) {
-            console.log("Countdown reached zero!");
             setGameTimeUp(true);
             setGameStarted(false);
-            clearInterval(interval);
             return 0;
           }
           return prev - 1;
         });
       }, 1000);
-
-      return () => clearInterval(interval);
     }
-  }, [gameStarted, timeLeft, handVisibleRef.current]);
+    return () => {
+      if (timerId) clearInterval(timerId);
+    };
+  }, [gameStarted, timeLeft, handVisible]);
 
   // tutorial/instructions related states
   const [instructionsText] = useState('Example: Touch both index fingertips together');
@@ -182,7 +202,9 @@ const YourProject = () => {
 
   // Detect the navigator agent
   const { isMac, isWindows, isAndroid, isiOS, isSafari, isChrome, isEdge } = checkNavigatorAgent(); // Check the user agent to determine the OS and browser
-
+  const animationFrameIdRef = useRef<number|undefined>(undefined);
+  let lastDetect = 0;
+  const detectInterval = 1000/30; // ms
   
   // The camera settings have been loaded
   useEffect(() => {
@@ -249,6 +271,16 @@ const YourProject = () => {
     }
   }, [userSettingsLoaded]);
 
+  // Animation frame for webcam predictions
+  useEffect(() => {
+    animationFrameIdRef.current = requestAnimationFrame(predictWebcam);
+    return () => {
+      if (animationFrameIdRef.current) {
+        cancelAnimationFrame(animationFrameIdRef.current);
+      }
+    };
+  }, []);
+  
   // Detect OS and browser
   useEffect(() => {
     console.log('💻 isMac: ', isMac);
@@ -365,8 +397,12 @@ const YourProject = () => {
 
   // Function to start the game with the selected hand
   const startGame = (hand: 'Left' | 'Right') => {
-    const handStr = hand as string;
-    setSelectedHand(handStr);
+    // cancel any existing loop before resetting
+    if (animationFrameIdRef.current !== undefined) {
+      cancelAnimationFrame(animationFrameIdRef.current);
+    }
+
+    setSelectedHand(hand as string);
 
     // Reset rectangles
     generateRectangles(hand);
@@ -383,25 +419,28 @@ const YourProject = () => {
     // Reset pinching-related states and refs
     setIsPinched(false);
     setShouldMoveRect(false);
+    setHandVisible(false);
+    
     setPinchedRectIndex(-1);
-    isPinchedRef.current = false;
-    shouldMoveRectRef.current = false;
-    pinchedRectIndexRef.current = -1;
+    lastDetect = 0;
+    animationFrameIdRef.current = requestAnimationFrame(predictWebcam);
   };
   
   // Function to generate rectangles for the game
   const generateRectangles = (hand: 'Left' | 'Right') => {
     const newRects: Rectangle[] = [];
-    const numBlocks = 5;
+    const numBlocks = 15;
     const blockWidth = 50;
     const blockHeight = 50;
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    // Define the area where blocks can spawn based on the selected hand
-    const dropZoneLine = canvas.width / 2;
-    const minX = hand === 'Left' ? dropZoneLine : 0;
-    const maxX = hand === 'Left' ? canvas.width - blockWidth : dropZoneLine - blockWidth;
+    // For mirrored screen, adjust the drop zone line to 2/3 or 1/3 depending on expected hand
+    const dropZoneLine = hand === 'Left'
+      ? (canvas.width * 2) / 3
+      : canvas.width / 3;
+    const minX = hand === 'Right' ? dropZoneLine : 0;
+    const maxX = hand === 'Right' ? canvas.width - blockWidth : dropZoneLine - blockWidth;
 
     for (let i = 0; i < numBlocks; i++) {
       let placed = false;
@@ -421,6 +460,7 @@ const YourProject = () => {
         }
       }
     }
+    setRectangles([]);
     setRectangles(newRects);
   };
   useEffect(() => {
@@ -431,52 +471,53 @@ const YourProject = () => {
         setGameStarted(false);
       }
     }
-  }, [rectangles, gameStarted]);
+    }, [rectangles, gameStarted]);
+  
   // Start webcam with the selected camera
   const startWebcam = async (cameraId: string): Promise<(() => void) | undefined> => {
-    try {
-      console.log('📷 Starting webcam...');
-      const constraints = {
-        video: {
-          deviceId: { exact: cameraId },
-          width: { ideal: 1080 },
-          height: { ideal: 720 },
-          frameRate: { ideal: 9999 },
-        },
-        audio: false
-      };
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      const track = stream.getVideoTracks()[0];
-      const settings = track.getSettings();
-      console.log('📷 Video Resolution:', settings.width, 'x', settings.height);
-
-      if (webcamVideoRef.current) {
-        const videoEl = webcamVideoRef.current;
-        videoEl.srcObject = stream;
-        videoEl.play();
-
-        const handleLoadedData = () => {
-          console.log('📷✅ Webcam started');
-          setWebcamRunning(true);
+      try {
+        console.log('📷 Starting webcam...');
+        const constraints = {
+          video: {
+            deviceId: { exact: cameraId },
+            width: { ideal: 1080 },
+            height: { ideal: 720 },
+            frameRate: { ideal: 9999 },
+          },
+          audio: false
         };
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        const track = stream.getVideoTracks()[0];
+        const settings = track.getSettings();
+        console.log('📷 Video Resolution:', settings.width, 'x', settings.height);
 
-        videoEl.addEventListener('loadedmetadata', handleLoadedData);
+        if (webcamVideoRef.current) {
+          const videoEl = webcamVideoRef.current;
+          videoEl.srcObject = stream;
+          videoEl.play();
 
-        // Return cleanup function
-        return () => {
-          videoEl.removeEventListener('loadedmetadata', handleLoadedData);
-        };
+          const handleLoadedData = () => {
+            console.log('📷✅ Webcam started');
+            setWebcamRunning(true);
+          };
+
+          videoEl.addEventListener('loadedmetadata', handleLoadedData);
+
+          // Return cleanup function
+          return () => {
+            videoEl.removeEventListener('loadedmetadata', handleLoadedData);
+          };
+        }
+
+        // If webcamVideoRef.current is null, return undefined
+        return undefined;
+
+      } catch (error) {
+        console.error('📷❌ Error accessing webcam:', error);
+        alert("📷❌ Error accessing webcam. Please enable your webcam and reload this page.");
+        // Return undefined on error
+        return undefined;
       }
-
-      // If webcamVideoRef.current is null, return undefined
-      return undefined;
-
-    } catch (error) {
-      console.error('📷❌ Error accessing webcam:', error);
-      alert("📷❌ Error accessing webcam. Please enable your webcam and reload this page.");
-      // Return undefined on error
-      return undefined;
-    }
   };
 
   // Create the Hand Landmarker
@@ -521,21 +562,32 @@ const YourProject = () => {
 
   const moveRectangle = (index: number, x: number, y: number) => {
     const rect = rectangles[index];
+    if(rect === undefined || rect.hasBeenPlaced) {
+      return;
+    }
+
     rect.x = x - rect.w / 2; // Center the rectangle on the new coordinates
     rect.y = y - rect.h / 2;
 
     // Update only the affected rectangle
-    const updatedRectangles = [...rectangles];
-    updatedRectangles[index] = rect;
-    setRectangles(updatedRectangles);
+    // Update only the affected rectangle using functional update
+    setRectangles(prev => {
+      const updated = [...prev];
+      updated[index] = rect;
+      return updated;
+    });
   };
 
-  const repositionRectangle = (index: number, expectedHand: string) => {
+  const repositionRectangle = (index: number) => {
     const rect = rectangles[index];
-    const dropZoneLine = canvasCtx.current!.canvas.width / 2;
-    const isLeftHand = expectedHand === 'Left';
-    const minX = isLeftHand ? 0 : dropZoneLine;
-    const maxX = isLeftHand ? dropZoneLine - rect.w : canvasCtx.current!.canvas.width - rect.w;
+    const canvasWidth = canvasCtx.current!.canvas.width;
+    const zoneLine = selectedHandRef.current === 'Left'
+      ? (canvasWidth * 2) / 3
+      : canvasWidth / 3;
+    const minX = selectedHandRef.current === 'Left' ? 0 : zoneLine;
+    const maxX = selectedHandRef.current === 'Left'
+      ? zoneLine - rect.w
+      : canvasWidth - rect.w;
 
     let tries = 0;
     let newX = 0, newY = 0;
@@ -557,20 +609,27 @@ const YourProject = () => {
     rect.x = newX;
     rect.y = newY;
 
-    const updatedRectangles = [...rectangles];
-    updatedRectangles[index] = rect;
-    setRectangles(updatedRectangles);
+    // Update only the affected rectangle with a new instance to trigger re-draw
+    setRectangles(prev => prev.map((r, i) => {
+      if (i === index) {
+        // create new rect instance at new position
+        const newRect = new Rectangle(newX, newY, r.w, r.h);
+        newRect.hasBeenPlaced = r.hasBeenPlaced;
+        return newRect;
+      }
+      return r;
+    }));
   };
   
+  // Function to setup the canvas before drawing
   const setupCanvas = (ctx: CanvasRenderingContext2D) => {
     ctx.save();
     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-    ctx.scale(-1, 1);
-    ctx.translate(-ctx.canvas.width, 0);
   };
 
-  const drawDropZoneLine = (ctx: CanvasRenderingContext2D) => {
-    const dropZoneLine = ctx.canvas.width / 2;
+  // Draw the drop zone line for the specified hand
+  const drawDropZoneLine = (ctx: CanvasRenderingContext2D, hand: string) => {
+    const dropZoneLine = hand === 'Right' ? ctx.canvas.width / 3 : (ctx.canvas.width * 2) / 3;
     ctx.strokeStyle = "black";
     ctx.lineWidth = 4;
     ctx.beginPath();
@@ -579,25 +638,41 @@ const YourProject = () => {
     ctx.stroke();
   };
 
+  // Interface for hand detection results
   interface HandDetectionResults {
     handedness: Array<Array<{ categoryName: string; score: number }>>;
     landmarks: Array<Array<{ x: number; y: number; z: number }>>;
   }
 
-  const detectHand = (results: HandDetectionResults, expectedHand: string) => {
+  // Function to detect the hand based on the results from the hand landmarker
+  const detectHand = (results: HandDetectionResults) => {
     return results.handedness.findIndex(
-      hand => hand[0].categoryName === expectedHand && hand[0].score > 0.5
+      hand => hand[0].categoryName === (selectedHandRef.current === 'Right' ? 'Left' : 'Right') && hand[0].score > 0.5
     );
   };
 
-  const calculatePinchDistance = (thumbTip: any, indexTip: any) => {
+  // Function to calculate the distance between thumb and index fingertips for pinch detection
+  const calculatePinchDistance = (
+    thumbTip: { x: number; y: number; z: number },
+    indexTip: { x: number; y: number; z: number }
+  ): number => {
     return Math.hypot(indexTip.x - thumbTip.x, indexTip.y - thumbTip.y);
   };
-  const handlePinchDetection = (thumbTip: any, indexTip: any, ctx: CanvasRenderingContext2D, expectedHand: string) => {
-    const pinchThreshold = 0.05;
+  // Function to handle pinch detection logic
+  const handlePinchDetection = (
+    thumbTip: { x: number; y: number; z: number },
+    indexTip: { x: number; y: number; z: number },
+    ctx: CanvasRenderingContext2D
+  ) => {
+    const pinchThreshold = 0.09;
 
-    const pinchCenterX = (thumbTip.x + indexTip.x) / 2 * ctx.canvas.width;
-    const pinchCenterY = (thumbTip.y + indexTip.y) / 2 * ctx.canvas.height;
+    // Mirror the X coordinate for pinch center (to match mirrored video/canvas)
+    const pinchCenterX = (1 - ((thumbTip.x + indexTip.x) / 2)) * ctx.canvas.width;
+    const pinchCenterY = ((thumbTip.y + indexTip.y) / 2) * ctx.canvas.height;
+    
+    if (shouldMoveRectRef.current && isPinchedRef.current && pinchedRectIndexRef.current !== -1) {
+      moveRectangle(pinchedRectIndexRef.current, pinchCenterX, pinchCenterY);
+    }
 
     const distance = calculatePinchDistance(thumbTip, indexTip);
     setDistance(distance);
@@ -605,24 +680,20 @@ const YourProject = () => {
     if (distance < pinchThreshold && !isPinchedRef.current) {
       handlePinchStart(pinchCenterX, pinchCenterY);
     } else if (distance > pinchThreshold && isPinchedRef.current) {
-      handlePinchRelease(expectedHand);
-    }
-
-    if (shouldMoveRectRef.current && isPinchedRef.current && pinchedRectIndexRef.current !== -1) {
-      moveRectangle(pinchedRectIndexRef.current, pinchCenterX, pinchCenterY);
+      handlePinchRelease();
     }
   };
 
+  // Function to handle pinch start logic
   const handlePinchStart = (pinchCenterX: number, pinchCenterY: number) => {
     // Prevent pinch logic if the game is already won
-    if (gameWon) return;
+    if (gameWonRef.current || gameTimeUpRef.current) return;
 
     setIsPinched(true);
-    isPinchedRef.current = true;
 
     const rectsCopy = [...rectangles];
     let rectFound = false;
-
+    // Check if the pinch center is within any rectangle
     for (let i = 0; i < rectsCopy.length; i++) {
       if (!rectsCopy[i].hasBeenPlaced && rectsCopy[i].contains({ x: pinchCenterX, y: pinchCenterY })) {
         setPinchedRectIndex(i);
@@ -634,28 +705,31 @@ const YourProject = () => {
       }
     }
 
+    // If no rectangle was found, increment misses and reset pinchedRectIndex
     if (!rectFound) {
       setMisses(prev => prev + 1);
       setPinchedRectIndex(-1);
     }
   };
 
-  const handlePinchRelease = (expectedHand: string) => {
+  // Function to handle pinch release logic
+  const handlePinchRelease = () => {
     setIsPinched(false);
     setShouldMoveRect(false);
-    isPinchedRef.current = false;
 
+    // If a rectangle was pinched, check if it was successfully placed
     if (pinchedRectIndexRef.current !== -1) {
       const rect = rectangles[pinchedRectIndexRef.current];
-      const dropZoneLine = canvasCtx.current!.canvas.width / 2;
-      const isLeftHand = expectedHand === "Left";
-      const success = (isLeftHand && rect.x > dropZoneLine) || (!isLeftHand && rect.x < dropZoneLine);
+      const dropZoneLine = selectedHandRef.current === 'Left' ? (canvasCtx.current!.canvas.width * 2) / 3 : canvasCtx.current!.canvas.width / 3;
+      const isLeftHand = selectedHandRef.current === 'Left';
+      const success = (isLeftHand && rect.x >= dropZoneLine) || (!isLeftHand && rect.x <= dropZoneLine);
 
       if (success) {
         setWins(prev => prev + 1);
         rect.hasBeenPlaced = true;
       } else {
-        repositionRectangle(pinchedRectIndexRef.current, expectedHand);
+        // If not successfully placed, reposition the rectangle
+        repositionRectangle(pinchedRectIndexRef.current);
       }
 
       rect.isPinched = false;
@@ -667,34 +741,53 @@ const YourProject = () => {
   };
   
   //Main function that loops during gameplay
-  const predictWebcam = async () => {
+  const predictWebcam = async (now = performance.now()) => {
     const ctx = canvasCtx.current;
-    if (!webcamVideoRef.current || !handLandmarker.current || !ctx || sessionFinishedRef.current) return;
-
-    setupCanvas(ctx);
-
-    const results = await handLandmarker.current.detectForVideo(webcamVideoRef.current, performance.now());
-    const expectedHand = selectedHand === "Left" ? "Right" : "Left";
-    const handIndex = detectHand(results, expectedHand);
-
-    setHandId(handIndex);
-    handVisibleRef.current = results.handedness.length > 0 && handIndex !== -1 && gameStarted;
-
-    drawDropZoneLine(ctx);
-    rectangles.forEach(rect => rect.draw(ctx));
-
-    if (results.handedness.length > 0 && gameStarted && handIndex !== -1) {
-      const landmarks = results.landmarks[handIndex];
-      drawLandmarks_simple(ctx, landmarks, 'rgb(64, 224, 208)');
-      handlePinchDetection(landmarks[4], landmarks[8], ctx, expectedHand);
+    if (!ctx || !webcamVideoRef.current || !handLandmarker.current) {
+      animationFrameIdRef.current = requestAnimationFrame(predictWebcam);
+      return;
     }
 
+    // clear
+    setupCanvas(ctx);
+
+    // only run expensive detection at throttle interval
+    let results: HandDetectionResults|undefined;
+    if (gameStarted && now - lastDetect > detectInterval) {
+      lastDetect = now;
+      results = await handLandmarker.current.detectForVideo(
+        webcamVideoRef.current, now
+      );
+
+      // update cached landmarks & visibility
+      if (results && results.handedness.length && !gameTimeUpRef.current && !gameWonRef.current) {
+        const idx = detectHand(results);
+        const visible = idx !== -1;
+        lastVisibleRef.current = visible;
+        lastLandmarksRef.current = visible ? results.landmarks[idx] : [];
+        setHandVisible(prev => prev !== visible ? visible : prev);
+      } else {
+        lastVisibleRef.current = false;
+        lastLandmarksRef.current = [];
+        setHandVisible(prev => prev ? false : prev);
+      }
+    }
+
+    // draw static elements
+    drawDropZoneLine(ctx, selectedHandRef.current);
+    rectangles.forEach(rect => rect.draw(ctx));
+
+    // redraw the last known landmarks every frame
+    if (lastVisibleRef.current && !gameTimeUpRef.current && !gameWonRef.current) {
+      const lm = lastLandmarksRef.current;
+      drawLandmarks_mirror(ctx, lm, 'rgb(64,224,208)');
+      handlePinchDetection(lm[4], lm[8], ctx);
+    }
     ctx.restore();
-    requestAnimationFrame(predictWebcam);
+    animationFrameIdRef.current = requestAnimationFrame(predictWebcam);
   };
 
   return (
-
     <div className="yourproject-container" style={isiOS ? { background: "black" } : {}}>
 
       {!isWebGLAvailable ? (
@@ -778,12 +871,12 @@ const YourProject = () => {
       )}
 
       {/* Game End Results */}
-      {(gameTimeUp || gameWon) && (
+      {(gameTimeUpRef.current || gameWonRef.current) && (
         <div className="popup-overlay">
           <div className="popup-container">
             <h2 className="popup-title-text">
-                {gameWon ? "🎉 You Won!" : "⏰ Time's Up!"}
-                
+                {gameWonRef.current ? "🎉 You Won!" : "⏰ Time's Up!"}
+
                 
             </h2>
             <div style={{ textAlign: 'center', margin: '20px 0', color: 'black' }}>
@@ -791,25 +884,17 @@ const YourProject = () => {
               Blocks Moved: {rectangles.filter(rect => rect.hasBeenPlaced).length} / {rectangles.length}
               </p>
               <p style={{ fontSize: '18px', margin: '10px 0' }}>
-              Score - Wins: {wins} | Misses: {misses}
+              Score - Wins: {wins} | Misses: {misses} | Selected Hand: {selectedHandRef.current}
               </p>
             </div>
             
-            <button
+            <button 
               className="popup-button"
               onClick={() => {
                 // Reset game states
                 setGameTimeUp(false);
                 setGameWon(false);
                 setShowIntroPopup(true);
-
-                // Reset pinching-related states and refs
-                setIsPinched(false);
-                setShouldMoveRect(false);
-                setPinchedRectIndex(-1);
-                isPinchedRef.current = false;
-                shouldMoveRectRef.current = false;
-                pinchedRectIndexRef.current = -1;
 
                 // Reset rectangles
                 setRectangles([]);
@@ -846,10 +931,6 @@ const YourProject = () => {
           </div>
         </div>
       )}
-
-      {/* Full-screen overlay */}
-      <div className="screen-cover"></div>
-
       {/* The webcam video and canvas */}
         <div className="video-canvas-overlay">
           <video
@@ -875,7 +956,7 @@ const YourProject = () => {
                 background: 'rgba(0,0,0,0.7)', 
                 padding: '0.5em 1em', 
                 borderRadius: '8px',
-                border: handVisibleRef.current ? '2px solid green' : '2px solid red'
+                border: '2px solid black' 
               }}>
                 ⏱️ {timeLeft}s
               </span>
