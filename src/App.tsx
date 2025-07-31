@@ -13,6 +13,7 @@ import Statistics from "./pages/Statistics";
 import Documentation from "./pages/Documentation";
 import Disclaimer from "./pages/Disclaimer";
 import Header from "./components/Header";
+import FaceBlocks from "./pages/FaceBlocks";
 import BlockPlacementTest from "./pages/BlockPlacementTest";
 
 function App() {
@@ -34,7 +35,7 @@ function App() {
                 <Route path="/statistics" element={<Statistics/>} />
                 <Route path="/documentation" element={<Documentation/>} />
                 <Route path="/disclaimer" element={<Disclaimer/>} />
-
+                <Route path="/FaceBlocks" element={<FaceBlocks/>} />
                 <Route path="/BlockPlacementTest" element={<BlockPlacementTest/>} />
               </Routes>
             </div>

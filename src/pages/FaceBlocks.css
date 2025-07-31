@@ -1,0 +1,32 @@
+/* Instructions and buttons container */
+.yourproject-container {
+  display: flex;                          /* Enables flexbox layout */
+  flex-direction: row;                    /* Horizontal layout by default */
+  align-items: center;                    /* Vertically center items */
+  height: 100%;                           /* Full container height */
+  width: 100%;                            /* Full container width */
+  position: relative;                     /* Position context for absolute children */
+  background: linear-gradient(
+    to bottom,
+    rgb(85, 99, 97),
+    rgb(214, 211, 210)
+  );                                      /* Background gradient */
+  overflow: auto;                         /* Enable scrolling if content overflows */
+}
+
+/* Results container in column layout */
+.resultsInColumn {
+  display: flex;                          /* Flex layout */
+  flex-direction: column;                 /* Stack items vertically */
+  gap: 8px;                               /* Gap between items */
+}
+
+/* 📱 Responsive styles for portrait mode */
+@media (orientation: portrait) {
+  .yourproject-container {
+    flex-direction: column;               /* Stack elements vertically on mobile/portrait */
+  }
+}
+
+
+

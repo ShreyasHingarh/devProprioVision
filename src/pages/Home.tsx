@@ -13,6 +13,7 @@ const CommunityLogo = "/assets/community-icon.png";
 
 // Image imports
 const YourProjectLogo = "/assets/square.jpg";
+const FaceBlocks = "/assets/faceblocks.jpg";
 
 // Component imports
 import Footer from "../components/Footer";
@@ -88,6 +89,13 @@ const Home = () => {
       subtitle: "Test how many blocks you can place in a target area with your hand.",
       to: "/BlockPlacementTest",
       image: YourProjectLogo,
+      buttonText: "Try it"
+    },
+    {
+      title: "Face Blocks",
+      subtitle: "Pick Blocks from parts of your body and place them on a target area.",
+      to: "/FaceBlocks",
+      image: FaceBlocks,
       buttonText: "Try it"
     },
     {
