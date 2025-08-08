@@ -663,7 +663,7 @@ const YourProject = () => {
     indexTip: { x: number; y: number; z: number },
     ctx: CanvasRenderingContext2D
   ) => {
-    const pinchThreshold = 0.09;
+    const pinchThreshold = 0.05;
 
     // Mirror the X coordinate for pinch center (to match mirrored video/canvas)
     const pinchCenterX = (1 - ((thumbTip.x + indexTip.x) / 2)) * ctx.canvas.width;
@@ -678,7 +678,7 @@ const YourProject = () => {
 
     if (distance < pinchThreshold && !isPinchedRef.current) {
       handlePinchStart(pinchCenterX, pinchCenterY);
-    } else if (distance > pinchThreshold && isPinchedRef.current) {
+    } else if (distance > pinchThreshold + 0.03 && isPinchedRef.current) {
       handlePinchRelease();
     }
   };
