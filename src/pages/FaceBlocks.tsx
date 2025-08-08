@@ -31,6 +31,10 @@ const PoseLandmarkNames: Record<number, string> = {
     9: "Mouth",       
     11: "Left Shoulder",   
     12: "Right Shoulder",  
+    100: "Chest",
+    101: "Forehead",
+    102: "Chin",
+    103: "Neck"
 };
 
 // Rectangle class to manage the blocks
@@ -135,9 +139,23 @@ const YourProject = () => {
     // UI-related states
     const [showIntroPopup, setShowIntroPopup] = useState(true);
     const [isWebGLAvailable, setWebGLAvailable] = useState<boolean>(true);
+    
+    const [shouldResetPage, setShouldResetPage] = useState<boolean>(false); // State to manage page reset
+    const webcamError = useRef<boolean>(false); // Ref to manage webcam error state
+    useEffect(() => {
+        if (webcamError.current) {
+            alert("📷❌ Error accessing webcam. Please reload this page.");
+            setShouldResetPage(true);
+        }
+    }, [webcamError.current]);
 
+    // Assessment Game States
+    // Need to make this based on person
+    const chestOffset = 40; // Offset for the chest rectangle
+    const chinOffset = 45; // Offset for the chin rectangle
+    const foreheadOffset = -20; // Offset for the forehead rectangle
+    const neckOffset = 0; // Offset for the neck rectangle
 
-    // Assessment Game Statesg
     const [gameStarted, setGameStarted] = useState(false);
     const [rectangles, setRectangles] = useState<Record<number, Rectangle>>({});
     const rectanglesRef = useRef<Record<number, Rectangle>>({}); // Ref to manage rectangles
@@ -197,7 +215,7 @@ const YourProject = () => {
     }, [nextTarget]);
 
     //Timer-related states
-    const [timeLeft, setTimeLeft] = useState(30); // 30 seconds
+    const [timeLeft, setTimeLeft] = useState(300); // 30 seconds
     const lastLandmarksRef = useRef<Array<{ x: number; y: number; z: number }>>([]);
     const lastVisibleRef = useRef<boolean>(false);
 
@@ -435,14 +453,13 @@ const YourProject = () => {
         setSelectedHand(hand as string);
 
         // Reset rectangles
-        generateRectangles(hand);
-
+        generateRectangles(hand);            
         // Reset game states
         setShowIntroPopup(false);
         setGameStarted(true);
         setGameTimeUp(false);
         setGameWon(false);
-        setTimeLeft(30); // Reset timer
+        setTimeLeft(300); // Reset timer
         setWins(0);
         setMisses(0);
 
@@ -475,6 +492,10 @@ const YourProject = () => {
             5,  // rightEye
             0,  // nose
             9,  // mouthLeft
+            100,    // Chest
+            101,    // Forehead
+            102,    // Chin
+            103    // Neck
         ];
 
         if (hand === 'Right') {
@@ -499,17 +520,67 @@ const YourProject = () => {
             for (let i = 0; i < landmarkIndices.length; i++) {
                 const idx = landmarkIndices[i];
                 // For mouth, average the two mouth points (indices 9 and 10)
-                if (idx === 9) {
-                    const mouthLeft = poseLandmarks[9];
-                    const mouthRight = poseLandmarks[10];
-                    if (mouthLeft && mouthRight) {
-                        const avgX = (mouthLeft.x + mouthRight.x) / 2;
-                        const avgY = (mouthLeft.y + mouthRight.y) / 2;
-                        const x = (1 - avgX) * canvas.width - blockWidth / 2;
-                        const y = avgY * canvas.height - blockHeight / 2 + 10;
-                        newRects[idx] = new Rectangle(x, y, blockWidth, blockHeight);
+                switch (idx) {
+                    case 9: { // Mouth: average mouthLeft (9) and mouthRight (10)
+                        const mouthLeft = poseLandmarks[9];
+                        const mouthRight = poseLandmarks[10];
+                        if (mouthLeft && mouthRight) {
+                            const avgX = (mouthLeft.x + mouthRight.x) / 2;
+                            const avgY = (mouthLeft.y + mouthRight.y) / 2;
+                            const x = (1 - avgX) * canvas.width - blockWidth / 2;
+                            const y = avgY * canvas.height - blockHeight / 2 + 10;
+                            newRects[idx] = new Rectangle(x, y, blockWidth, blockHeight);
+                        }
+                        continue; // Skip to next index
                     }
-                    continue; // Skip to next index
+                    case 100: {// Chest
+                        const rightShoulder = poseLandmarks[12];
+                        const leftShoulder = poseLandmarks[11];
+                        if (rightShoulder && leftShoulder) {
+                            const avgX = (rightShoulder.x + leftShoulder.x) / 2;
+                            const avgY = (rightShoulder.y + leftShoulder.y) / 2;
+                            const x = (1 - avgX) * canvas.width - blockWidth / 2;
+                            const y = avgY * canvas.height - blockHeight / 2;
+                            newRects[idx] = new Rectangle(x, y + chestOffset, blockWidth, blockHeight);
+                        }
+                        continue;
+                    }
+                    case 101: {// Forehead
+                        const rightEye = poseLandmarks[5];
+                        const leftEye = poseLandmarks[1];
+                        if (rightEye && leftEye) {
+                            const avgX = (rightEye.x + leftEye.x) / 2;
+                            const avgY = (rightEye.y + leftEye.y) / 2;
+                            const x = (1 - avgX) * canvas.width - blockWidth / 2;
+                            const y = avgY * canvas.height - blockHeight / 2;
+                            newRects[idx] = new Rectangle(x, y + foreheadOffset, blockWidth, blockHeight);
+                        }
+                        continue; 
+                    }
+                    case 102: {// Chin
+                        const nose = poseLandmarks[0];
+                        if (nose) {
+                            const x = (1 - nose.x) * canvas.width - blockWidth / 2;
+                            const y = nose.y * canvas.height - blockHeight / 2;
+                            newRects[idx] = new Rectangle(x, y + chinOffset, blockWidth, blockHeight);
+                        }
+                        continue;
+                    }
+                    case 103: {// Neck
+                        const leftShoulder = poseLandmarks[11];
+                        const rightShoulder = poseLandmarks[12];
+                        if (leftShoulder && rightShoulder) {
+                            const avgX = (leftShoulder.x + rightShoulder.x) / 2;
+                            const avgY = (leftShoulder.y + rightShoulder.y) / 2;
+                            const x = (1 - avgX) * canvas.width - blockWidth / 2;
+                            const y = avgY * canvas.height - blockHeight / 2;
+                            newRects[idx] = new Rectangle(x, y + neckOffset, blockWidth, blockHeight);
+                        }
+                        // These landmarks are not used in the game, so skip them
+                        continue;
+                    }
+                    default:
+                        break;
                 }
                 const lm = poseLandmarks[idx];
                 if (!lm) continue;
@@ -522,6 +593,9 @@ const YourProject = () => {
             setRectangles(newRects);
         })();
         console.log('🟦 Rectangles generated:', Object.keys(newRects).length);
+        if(Object.keys(newRects).length === 0) {
+            webcamError.current = true; // Set webcam error state if no rectangles are generated
+        }
     };
 
     // Get pose landmarks from the latest pose detection
@@ -664,10 +738,6 @@ const YourProject = () => {
         });
     };
 
-    const repositionRectangle = (index: number) => {
-
-    };
-
     // Function to setup the canvas before drawing
     const setupCanvas = (ctx: CanvasRenderingContext2D) => {
         ctx.save();
@@ -748,9 +818,9 @@ const YourProject = () => {
         const distance = calculatePinchDistance(thumbTip, indexTip);
         setDistance(distance);
 
-        if (distance < pinchThreshold + 0.03 && !isPinchedRef.current) {
+        if (distance < pinchThreshold  && !isPinchedRef.current) {
             handlePinchStart(pinchCenterX, pinchCenterY);
-        } else if (distance > pinchThreshold && isPinchedRef.current) {
+        } else if (distance > pinchThreshold + 0.03&& isPinchedRef.current) {
             handlePinchRelease();
         }
     };
@@ -888,29 +958,93 @@ const YourProject = () => {
                     // Only update rectangles that have NOT been placed
                     if (!rect.hasBeenPlaced && !shouldMoveRectRef.current && pinchedRectIndexRef.current !== idx) {                         
                         // For mouth (index 9), average mouthLeft (9) and mouthRight (10)
-                        if (idx === 9 && poseLandmarks[9] && poseLandmarks[10]) {
-                            const avgX = (poseLandmarks[9].x + poseLandmarks[10].x) / 2;
-                            const avgY = (poseLandmarks[9].y + poseLandmarks[10].y) / 2;
-                            // Create a new Rectangle to avoid mutating the original
-                            updatedRects[idx] = new Rectangle(
-                                (1 - avgX) * ctx.canvas.width - size / 2,
-                                avgY * ctx.canvas.height - size / 2 + 10,
-                                size,
-                                size
-                            );
-                            updatedRects[idx].isPinched = rect.isPinched;
-                            updatedRects[idx].hasBeenPlaced = rect.hasBeenPlaced;
-                            updatedRects[idx].color = rect.color;
-                        } else if (poseLandmarks[idx]) {
-                            updatedRects[idx] = new Rectangle(
-                                (1 - poseLandmarks[idx].x) * ctx.canvas.width - size / 2,
-                                poseLandmarks[idx].y * ctx.canvas.height - size / 2,
-                                size,
-                                size
-                            );
-                            updatedRects[idx].isPinched = rect.isPinched;
-                            updatedRects[idx].hasBeenPlaced = rect.hasBeenPlaced;
-                            updatedRects[idx].color = rect.color;
+                        switch (idx) {
+                            case 9: // Mouth: average mouthLeft (9) and mouthRight (10)
+                                if (poseLandmarks[9] && poseLandmarks[10]) {
+                                    const avgX = (poseLandmarks[9].x + poseLandmarks[10].x) / 2;
+                                    const avgY = (poseLandmarks[9].y + poseLandmarks[10].y) / 2;
+                                    updatedRects[idx] = new Rectangle(
+                                        (1 - avgX) * ctx.canvas.width - size / 2,
+                                        avgY * ctx.canvas.height - size / 2 + 10,
+                                        size,
+                                        size
+                                    );
+                                    updatedRects[idx].isPinched = rect.isPinched;
+                                    updatedRects[idx].hasBeenPlaced = rect.hasBeenPlaced;
+                                    updatedRects[idx].color = rect.color;
+                                }
+                                break;
+                            case 100: // Chest: average leftShoulder (11) and rightShoulder (12)
+                                if (poseLandmarks[11] && poseLandmarks[12]) {
+                                    const avgX = (poseLandmarks[11].x + poseLandmarks[12].x) / 2;
+                                    const avgY = (poseLandmarks[11].y + poseLandmarks[12].y) / 2;
+                                    updatedRects[idx] = new Rectangle(
+                                        (1 - avgX) * ctx.canvas.width - size / 2,
+                                        avgY * ctx.canvas.height - size / 2 + chestOffset,
+                                        size,
+                                        size
+                                    );
+                                    updatedRects[idx].isPinched = rect.isPinched;
+                                    updatedRects[idx].hasBeenPlaced = rect.hasBeenPlaced;
+                                    updatedRects[idx].color = rect.color;
+                                }
+                                break;
+                            case 101: // Forehead: average leftEye (1) and rightEye (5)
+                                if (poseLandmarks[1] && poseLandmarks[5]) {
+                                    const avgX = (poseLandmarks[1].x + poseLandmarks[5].x) / 2;
+                                    const avgY = (poseLandmarks[1].y + poseLandmarks[5].y) / 2;
+                                    updatedRects[idx] = new Rectangle(
+                                        (1 - avgX) * ctx.canvas.width - size / 2,
+                                        avgY * ctx.canvas.height - size / 2 + foreheadOffset,
+                                        size,
+                                        size
+                                    );
+                                    updatedRects[idx].isPinched = rect.isPinched;
+                                    updatedRects[idx].hasBeenPlaced = rect.hasBeenPlaced;
+                                    updatedRects[idx].color = rect.color;
+                                }
+                                break;
+                            case 102: // Chin: offset from nose (0)
+                                if (poseLandmarks[0]) {
+                                    updatedRects[idx] = new Rectangle(
+                                        (1 - poseLandmarks[0].x) * ctx.canvas.width - size / 2,
+                                        poseLandmarks[0].y * ctx.canvas.height - size / 2 + chinOffset,
+                                        size,
+                                        size
+                                    );
+                                    updatedRects[idx].isPinched = rect.isPinched;
+                                    updatedRects[idx].hasBeenPlaced = rect.hasBeenPlaced;
+                                    updatedRects[idx].color = rect.color;
+                                }
+                                break;
+                            case 103: // Neck: average leftShoulder (11) and rightShoulder (12)
+                                if (poseLandmarks[11] && poseLandmarks[12]) {
+                                    const avgX = (poseLandmarks[11].x + poseLandmarks[12].x) / 2;
+                                    const avgY = (poseLandmarks[11].y + poseLandmarks[12].y) / 2;
+                                    updatedRects[idx] = new Rectangle(
+                                        (1 - avgX) * ctx.canvas.width - size / 2,
+                                        avgY * ctx.canvas.height - size / 2 + neckOffset,
+                                        size,
+                                        size
+                                    );
+                                    updatedRects[idx].isPinched = rect.isPinched;
+                                    updatedRects[idx].hasBeenPlaced = rect.hasBeenPlaced;
+                                    updatedRects[idx].color = rect.color;
+                                }
+                                break;
+                            default:
+                                if (poseLandmarks[idx]) {
+                                    updatedRects[idx] = new Rectangle(
+                                        (1 - poseLandmarks[idx].x) * ctx.canvas.width - size / 2,
+                                        poseLandmarks[idx].y * ctx.canvas.height - size / 2,
+                                        size,
+                                        size
+                                    );
+                                    updatedRects[idx].isPinched = rect.isPinched;
+                                    updatedRects[idx].hasBeenPlaced = rect.hasBeenPlaced;
+                                    updatedRects[idx].color = rect.color;
+                                }
+                                break;
                         }
                     }
                 });
