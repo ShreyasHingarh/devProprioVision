@@ -215,7 +215,7 @@ const YourProject = () => {
     }, [nextTarget]);
 
     //Timer-related states
-    const [timeLeft, setTimeLeft] = useState(300); // 30 seconds
+    const [timeLeft, setTimeLeft] = useState(30); // 30 seconds
     const lastLandmarksRef = useRef<Array<{ x: number; y: number; z: number }>>([]);
     const lastVisibleRef = useRef<boolean>(false);
 
@@ -459,7 +459,7 @@ const YourProject = () => {
         setGameStarted(true);
         setGameTimeUp(false);
         setGameWon(false);
-        setTimeLeft(300); // Reset timer
+        setTimeLeft(30); // Reset timer
         setWins(0);
         setMisses(0);
 
@@ -467,7 +467,7 @@ const YourProject = () => {
         setIsPinched(false);
         setShouldMoveRect(false);
         setHandVisible(false);
-
+        
         setPinchedRectIndex(-1);
         lastDetect = 0;
         animationFrameIdRef.current = requestAnimationFrame(predictWebcam);
@@ -746,7 +746,7 @@ const YourProject = () => {
 
     // Draw the drop zone line for the specified hand
     const drawDropZoneLine = (ctx: CanvasRenderingContext2D, hand: string) => {
-        const dropZoneLine = hand === 'Right' ? ctx.canvas.width / 4 : (ctx.canvas.width * 3) / 4;
+        const dropZoneLine = hand === 'Left' ? ctx.canvas.width / 4 : (ctx.canvas.width * 3) / 4;
         ctx.strokeStyle = "black";
         ctx.lineWidth = 4;
         ctx.beginPath();
@@ -792,36 +792,43 @@ const YourProject = () => {
         );
     };
 
-    // Function to calculate the distance between thumb and index fingertips for pinch detection
-    const calculatePinchDistance = (
-        thumbTip: { x: number; y: number; z: number },
-        indexTip: { x: number; y: number; z: number }
-    ): number => {
-        return Math.hypot(indexTip.x - thumbTip.x, indexTip.y - thumbTip.y);
-    };
     // Function to handle pinch detection logic
     const handlePinchDetection = (
         thumbTip: { x: number; y: number; z: number },
         indexTip: { x: number; y: number; z: number },
         ctx: CanvasRenderingContext2D
     ) => {
-        const pinchThreshold = 0.05;
+        //The threshold that should trigger pinch detection (2D normalized units)
+        const pinchThreshold2D = 0.05;
+
+        // Depth threshold: require fingers to be close in Z (model units)
+        // Tune this value to your setup; larger = stricter depth requirement
+        const pinchZThreshold = -0.011;
 
         // Mirror the X coordinate for pinch center (to match mirrored video/canvas)
         const pinchCenterX = (1 - ((thumbTip.x + indexTip.x) / 2)) * ctx.canvas.width;
         const pinchCenterY = ((thumbTip.y + indexTip.y) / 2) * ctx.canvas.height;
 
+        const distance2D = Math.hypot(indexTip.x - thumbTip.x, indexTip.y - thumbTip.y);
+        setDistance(distance2D);
+
         if (shouldMoveRectRef.current && isPinchedRef.current && pinchedRectIndexRef.current !== -1) {
             moveRectangle(pinchedRectIndexRef.current, pinchCenterX, pinchCenterY);
         }
 
-        const distance = calculatePinchDistance(thumbTip, indexTip);
-        setDistance(distance);
+        const fingersClose2D = distance2D < pinchThreshold2D;
+        const fingersCloseZ = indexTip.z - thumbTip.z > pinchZThreshold;
+        const isNowPinched = fingersClose2D && fingersCloseZ;
 
-        if (distance < pinchThreshold  && !isPinchedRef.current) {
+        if (isNowPinched && !isPinchedRef.current) {
             handlePinchStart(pinchCenterX, pinchCenterY);
-        } else if (distance > pinchThreshold + 0.03&& isPinchedRef.current) {
-            handlePinchRelease();
+        } else if (!isNowPinched && isPinchedRef.current) {
+            const release2DThreshold = pinchThreshold2D + 0.03;
+            const releaseZThreshold = pinchZThreshold - 0.01;
+            const shouldRelease = distance2D > release2DThreshold || indexTip.z - thumbTip.z < releaseZThreshold;
+            if (shouldRelease) {
+                handlePinchRelease();
+            }
         }
     };
 
@@ -858,9 +865,9 @@ const YourProject = () => {
             const updatedRectangles = { ...rectanglesRef.current };
             const rect = updatedRectangles[pinchedRectIndexRef.current];
             if (!rect) return;
-            const dropZoneLine = selectedHandRef.current === 'Left' ? (canvasCtx.current!.canvas.width * 3) / 4 : canvasCtx.current!.canvas.width / 4;
+            const dropZoneLine = selectedHandRef.current === 'Right' ? (canvasCtx.current!.canvas.width * 3) / 4 : canvasCtx.current!.canvas.width / 4;
             const isLeftHand = selectedHandRef.current === 'Left';
-            const success = (isLeftHand && rect.x >= dropZoneLine) || (!isLeftHand && rect.x <= dropZoneLine);
+            const success = (isLeftHand && rect.x <= dropZoneLine) || (!isLeftHand && rect.x >= dropZoneLine);
 
             if (success) {
                 setWins(prev => prev + 1);
@@ -937,7 +944,7 @@ const YourProject = () => {
         // Draw using ctx over the video based on the hand chosen
         // Draw a blank cover over the entire video
         ctx.save();
-        if (selectedHandRef.current === 'Left') {
+        if (selectedHandRef.current === 'Right') {
             ctx.fillStyle = "rgba(250, 234, 220, 1)";
             ctx.fillRect(0, 0, ctx.canvas.width * 0.75, ctx.canvas.height);
         } else {
@@ -1224,7 +1231,10 @@ const YourProject = () => {
                                 setGameTimeUp(false);
                                 setGameWon(false);
                                 setShowIntroPopup(true);
-
+                                // save the game time left to the session resultsRef
+                                sessionResultsRef.current.push(timeLeft);
+                                // update last task result and show results box
+                                setTaskResult(timeLeft);
                                 // Reset rectangles
                                 setRectangles([]);
                             }}
@@ -1280,7 +1290,7 @@ const YourProject = () => {
 
                 {/* Game Stats Display */}
                 <div style={{ position: 'absolute', top: 10, left: 10, color: 'white', backgroundColor: 'rgba(0,0,0,0.5)', padding: '5px 10px', borderRadius: '5px', fontSize: '20px', zIndex: 20 }}>
-                    Wins: {wins} | Misses: {misses} | Next Target: {PoseLandmarkNames[nextTarget as keyof typeof PoseLandmarkNames] ?? nextTarget}
+                    Wins: {wins} | Misses: {misses} | Next Target: {PoseLandmarkNames[nextTarget as keyof typeof PoseLandmarkNames] ?? nextTarget}  
                 </div>
 
                 {/* Timer Display - Top Right */}

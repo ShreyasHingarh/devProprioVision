@@ -100,7 +100,7 @@ const YourProject = () => {
   const [showConfetti, setShowConfetti] = useState(false);
   const [showResultsBox, setshowResultsBox] = useState(false);
   const resultsContainerRef = useRef<HTMLDivElement>(null);
-
+  
   // Webcam and Canvas states
   const webcamVideoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);                // canvasRef.current refers to the actual <canvas> element in the DOM.
@@ -435,11 +435,11 @@ const YourProject = () => {
     if (!canvas) return;
 
     // For mirrored screen, adjust the drop zone line to 2/3 or 1/3 depending on expected hand
-    const dropZoneLine = hand === 'Left'
+    const dropZoneLine = hand === 'Right'
       ? (canvas.width * 2) / 3
       : canvas.width / 3;
-    const minX = hand === 'Right' ? dropZoneLine : 0;
-    const maxX = hand === 'Right' ? canvas.width - blockWidth : dropZoneLine - blockWidth;
+    const minX = hand === 'Left' ? dropZoneLine : 0;
+    const maxX = hand === 'Left' ? canvas.width - blockWidth : dropZoneLine - blockWidth;
 
     for (let i = 0; i < numBlocks; i++) {
       let placed = false;
@@ -580,11 +580,11 @@ const YourProject = () => {
   const repositionRectangle = (index: number) => {
     const rect = rectangles[index];
     const canvasWidth = canvasCtx.current!.canvas.width;
-    const zoneLine = selectedHandRef.current === 'Left'
+    const zoneLine = selectedHandRef.current === 'Right'
       ? (canvasWidth * 2) / 3
       : canvasWidth / 3;
-    const minX = selectedHandRef.current === 'Left' ? 0 : zoneLine;
-    const maxX = selectedHandRef.current === 'Left'
+    const minX = selectedHandRef.current === 'Right' ? 0 : zoneLine;
+    const maxX = selectedHandRef.current === 'Right'
       ? zoneLine - rect.w
       : canvasWidth - rect.w;
 
@@ -628,7 +628,7 @@ const YourProject = () => {
 
   // Draw the drop zone line for the specified hand
   const drawDropZoneLine = (ctx: CanvasRenderingContext2D, hand: string) => {
-    const dropZoneLine = hand === 'Right' ? ctx.canvas.width / 3 : (ctx.canvas.width * 2) / 3;
+    const dropZoneLine = hand === 'Left' ? ctx.canvas.width / 3 : (ctx.canvas.width * 2) / 3;
     ctx.strokeStyle = "black";
     ctx.lineWidth = 4;
     ctx.beginPath();
@@ -663,24 +663,38 @@ const YourProject = () => {
     indexTip: { x: number; y: number; z: number },
     ctx: CanvasRenderingContext2D
   ) => {
-    const pinchThreshold = 0.05;
+            //The threshold that should trigger pinch detection (2D normalized units)
+        const pinchThreshold2D = 0.05;
 
-    // Mirror the X coordinate for pinch center (to match mirrored video/canvas)
-    const pinchCenterX = (1 - ((thumbTip.x + indexTip.x) / 2)) * ctx.canvas.width;
-    const pinchCenterY = ((thumbTip.y + indexTip.y) / 2) * ctx.canvas.height;
-    
-    if (shouldMoveRectRef.current && isPinchedRef.current && pinchedRectIndexRef.current !== -1) {
-      moveRectangle(pinchedRectIndexRef.current, pinchCenterX, pinchCenterY);
-    }
+        // Depth threshold: require fingers to be close in Z (model units)
+        // Tune this value to your setup; larger = stricter depth requirement
+        const pinchZThreshold = -0.02;
 
-    const distance = calculatePinchDistance(thumbTip, indexTip);
-    setDistance(distance);
+        // Mirror the X coordinate for pinch center (to match mirrored video/canvas)
+        const pinchCenterX = (1 - ((thumbTip.x + indexTip.x) / 2)) * ctx.canvas.width;
+        const pinchCenterY = ((thumbTip.y + indexTip.y) / 2) * ctx.canvas.height;
 
-    if (distance < pinchThreshold && !isPinchedRef.current) {
-      handlePinchStart(pinchCenterX, pinchCenterY);
-    } else if (distance > pinchThreshold + 0.03 && isPinchedRef.current) {
-      handlePinchRelease();
-    }
+        const distance2D = Math.hypot(indexTip.x - thumbTip.x, indexTip.y - thumbTip.y);
+        setDistance(distance2D);
+
+        if (shouldMoveRectRef.current && isPinchedRef.current && pinchedRectIndexRef.current !== -1) {
+            moveRectangle(pinchedRectIndexRef.current, pinchCenterX, pinchCenterY);
+        }
+
+        const fingersClose2D = distance2D < pinchThreshold2D;
+        const fingersCloseZ = indexTip.z - thumbTip.z > pinchZThreshold;
+        const isNowPinched = fingersClose2D && fingersCloseZ;
+
+        if (isNowPinched && !isPinchedRef.current) {
+            handlePinchStart(pinchCenterX, pinchCenterY);
+        } else if (!isNowPinched && isPinchedRef.current) {
+            const release2DThreshold = pinchThreshold2D + 0.03;
+            const releaseZThreshold = pinchZThreshold - 0.01;
+            const shouldRelease = distance2D > release2DThreshold || indexTip.z - thumbTip.z < releaseZThreshold;
+            if (shouldRelease) {
+                handlePinchRelease();
+            }
+        }
   };
 
   // Function to handle pinch start logic
@@ -719,9 +733,9 @@ const YourProject = () => {
     // If a rectangle was pinched, check if it was successfully placed
     if (pinchedRectIndexRef.current !== -1) {
       const rect = rectangles[pinchedRectIndexRef.current];
-      const dropZoneLine = selectedHandRef.current === 'Left' ? (canvasCtx.current!.canvas.width * 2) / 3 : canvasCtx.current!.canvas.width / 3;
+      const dropZoneLine = selectedHandRef.current === 'Right' ? (canvasCtx.current!.canvas.width * 2) / 3 : canvasCtx.current!.canvas.width / 3;
       const isLeftHand = selectedHandRef.current === 'Left';
-      const success = (isLeftHand && rect.x >= dropZoneLine) || (!isLeftHand && rect.x <= dropZoneLine);
+      const success = (isLeftHand && rect.x <= dropZoneLine) || (!isLeftHand && rect.x >= dropZoneLine);
 
       if (success) {
         setWins(prev => prev + 1);
@@ -890,11 +904,15 @@ const YourProject = () => {
             <button 
               className="popup-button"
               onClick={() => {
+                
                 // Reset game states
                 setGameTimeUp(false);
                 setGameWon(false);
                 setShowIntroPopup(true);
-
+                // save the game time left to the session resultsRef
+                sessionResultsRef.current.push(timeLeft);
+                // update last task result and show results box
+                setTaskResult(timeLeft);
                 // Reset rectangles
                 setRectangles([]);
               }}
